@@ -1,0 +1,3 @@
+sample_id,gestational_week,matrix_dir,include
+Sample1,18,/path/to/filtered_feature_bc_matrix,TRUE
+Sample2,22,/path/to/filtered_feature_bc_matrix,TRUE

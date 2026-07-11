@@ -1,0 +1,2 @@
+run_accession,fastq_1,fastq_2
+HRR0000000,/path/to/HRA019091/HRR0000000/HRR0000000_f1.fq.gz,/path/to/HRA019091/HRR0000000/HRR0000000_r2.fq.gz
