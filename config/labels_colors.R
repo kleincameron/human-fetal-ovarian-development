@@ -47,7 +47,7 @@ subcluster_label_map <- c(
   stroma_3 = "Proliferative stromal progenitors",
   stroma_4 = "Perineural stroma",
 
-  endothelial_0 = "Angiogenic endothelial",
+  endothelial_0 = "Angiogenic endothelia",
 
   mural_0 = "Pericytes",
   mural_1 = "Contractile VSMC",
