@@ -36,3 +36,6 @@ logs/
 .DS_Store
 Thumbs.db
 config/snrna_samples.csv
+
+# Public per-cell annotation table used to rebuild annotated snRNA-seq object
+!metadata/snRNAseq_cell_annotations.csv
