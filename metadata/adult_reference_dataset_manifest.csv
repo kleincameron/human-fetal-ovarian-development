@@ -1,0 +1,2 @@
+dataset_name,source_database,collection_name,collection_id,dataset_id,organism,tissue,publication,publication_doi,expected_h5ad_filename,notes
+Tabula Sapiens adult ovary,CZ CELLxGENE Discover / CELLxGENE Census,Tabula Sapiens,e5f58829-1a66-40b5-a624-9046778e74f5,584027d5-32d7-4696-9424-f61134ff2aa7,Homo sapiens,ovary,The Tabula Sapiens: A multiple-organ single-cell transcriptomic atlas of humans,10.1126/science.abl4896,584027d5-32d7-4696-9424-f61134ff2aa7.h5ad,Adult reference dataset used for fetal-adult ovary comparison and integration.
