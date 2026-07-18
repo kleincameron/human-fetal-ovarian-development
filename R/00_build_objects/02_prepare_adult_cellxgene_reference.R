@@ -1,10 +1,12 @@
-suppressPackageStartupMessages({
-  library(Seurat)
-  library(Matrix)
-  library(reticulate)
-  library(dplyr)
-  library(readr)
-})
+# Prepare the adult ovary CELLxGENE reference as a Seurat object.
+#
+# The selected adult H5AD contains:
+#   - X: normalized/log-like expression
+#   - layers["decontXcounts"]: integer, count-like expression
+#
+# For downstream compatibility:
+#   - RNA/counts stores decontXcounts
+#   - RNA/data stores X
 
 options(bitmapType = "cairo")
 
@@ -17,6 +19,15 @@ if (!nzchar(Sys.getenv("RETICULATE_PYTHON"))) {
   }
 }
 Sys.setenv(RETICULATE_USE_MANAGED_VENV = "no")
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(reticulate)
+  library(dplyr)
+  library(readr)
+  library(tibble)
+})
 
 project_root <- "/home/liyan/liyan/Final/github_code_for_publication"
 adult_results_root <- "/home/liyan/liyan/Final/github_code_for_publication_results/adult_cellxgene_reference"
@@ -38,7 +49,6 @@ adult_dataset <- manifest |>
 if (nrow(adult_dataset) != 1) {
   stop("Adult dataset manifest must contain exactly one row for dataset_id: ", adult_dataset_id)
 }
-
 raw_dir <- file.path(adult_results_root, "raw")
 object_dir <- file.path(adult_results_root, "objects")
 table_dir <- file.path(adult_results_root, "tables")
@@ -61,6 +71,7 @@ adult_rds <- file.path(
   object_dir,
   "adult_cellxgene_584027d5_seurat.rds"
 )
+
 feature_map_csv <- file.path(
   table_dir,
   "adult_cellxgene_584027d5_feature_map.csv"
@@ -69,6 +80,11 @@ feature_map_csv <- file.path(
 cell_metadata_columns_csv <- file.path(
   table_dir,
   "adult_cellxgene_584027d5_cell_metadata_columns.csv"
+)
+
+matrix_summary_csv <- file.path(
+  table_dir,
+  "adult_cellxgene_584027d5_matrix_summary.csv"
 )
 
 summary_txt <- file.path(
@@ -90,7 +106,6 @@ pick_first_existing <- function(df, candidates) {
 
   hit[[1]]
 }
-
 as_dgC_from_scipy_sparse <- function(x) {
   scipy_sparse <- reticulate::import("scipy.sparse", convert = FALSE)
 
@@ -117,12 +132,38 @@ as_dgC_from_scipy_sparse <- function(x) {
     Dim = matrix_shape
   )
 }
+
+summarize_sparse_matrix <- function(matrix, source_name) {
+  values <- matrix@x
+
+  fraction_noninteger <- if (length(values) > 0) {
+    mean(abs(values - round(values)) > 1e-6)
+  } else {
+    0
+  }
+
+  value_range <- if (length(values) > 0) {
+    range(values)
+  } else {
+    c(0, 0)
+  }
+
+  tibble(
+    source = source_name,
+    genes = nrow(matrix),
+    cells = ncol(matrix),
+    nonzero_values = length(values),
+    fraction_noninteger = fraction_noninteger,
+    min_value = value_range[[1]],
+    max_value = value_range[[2]]
+  )
+}
+
 download_adult_h5ad_if_missing <- function(dataset_id, output_file) {
   if (file.exists(output_file)) {
     cat("Using existing adult H5AD:\n  ", output_file, "\n", sep = "")
     return(invisible(output_file))
   }
-
   cat("Adult H5AD not found. Attempting CELLxGENE Census download.\n")
 
   if (!requireNamespace("cellxgene.census", quietly = TRUE)) {
@@ -164,12 +205,32 @@ anndata <- reticulate::import("anndata", convert = FALSE)
 cat("\nReading adult CELLxGENE H5AD:\n  ", adult_h5ad, "\n", sep = "")
 adata <- anndata$read_h5ad(adult_h5ad)
 
-matrix_source <- "X"
-x <- adata$X
+py_builtins <- reticulate::import_builtins(convert = FALSE)
 
+layer_names <- as.character(
+  reticulate::py_to_r(
+    py_builtins$list(adata$layers$keys())
+  )
+)
+
+data_source <- "X"
+counts_source <- if ("decontXcounts" %in% layer_names) {
+  "layers/decontXcounts"
+} else {
+  NA_character_
+}
+
+if (is.na(counts_source)) {
+  stop(
+    "No count-like adult matrix was found. Expected layers['decontXcounts']; ",
+    "available layers are: ",
+    paste(layer_names, collapse = ", ")
+  )
+}
 genes_raw <- as.character(
   reticulate::py_to_r(adata$var_names$to_list())
 )
+
 cells <- as.character(
   reticulate::py_to_r(adata$obs_names$to_list())
 )
@@ -183,17 +244,26 @@ cat(
   sep = ""
 )
 
-matrix_cells_by_genes <- as_dgC_from_scipy_sparse(x)
+cat("AnnData layers: ", paste(layer_names, collapse = ", "), "\n", sep = "")
+cat("Using RNA/counts source: ", counts_source, "\n", sep = "")
+cat("Using RNA/data source: ", data_source, "\n", sep = "")
 
-stopifnot(nrow(matrix_cells_by_genes) == length(cells))
-stopifnot(ncol(matrix_cells_by_genes) == length(genes_raw))
+data_cells_by_genes <- as_dgC_from_scipy_sparse(adata$X)
+counts_cells_by_genes <- as_dgC_from_scipy_sparse(adata$layers[["decontXcounts"]])
 
-dimnames(matrix_cells_by_genes) <- list(cells, genes_raw)
+stopifnot(nrow(data_cells_by_genes) == length(cells))
+stopifnot(ncol(data_cells_by_genes) == length(genes_raw))
+stopifnot(nrow(counts_cells_by_genes) == length(cells))
+stopifnot(ncol(counts_cells_by_genes) == length(genes_raw))
 
-mat <- Matrix::t(matrix_cells_by_genes)
+dimnames(data_cells_by_genes) <- list(cells, genes_raw)
+dimnames(counts_cells_by_genes) <- list(cells, genes_raw)
 
-stopifnot(nrow(mat) == length(genes_raw))
-stopifnot(ncol(mat) == length(cells))
+data_mat <- Matrix::t(data_cells_by_genes)
+counts_mat <- Matrix::t(counts_cells_by_genes)
+
+stopifnot(identical(rownames(data_mat), rownames(counts_mat)))
+stopifnot(identical(colnames(data_mat), colnames(counts_mat)))
 
 var <- reticulate::py_to_r(adata$var)
 if (!is.data.frame(var)) {
@@ -218,7 +288,6 @@ symbol_column <- pick_first_existing(
   var,
   gene_symbol_candidates
 )
-
 gene_symbol <- rep(NA_character_, nrow(var))
 
 if (!is.na(symbol_column)) {
@@ -233,55 +302,71 @@ if (!all(is.na(gene_symbol))) {
     genes_raw,
     gene_symbol
   )
-
-  features_used <- make.unique(features_used)
-}
-rownames(mat) <- features_used
-
-fraction_noninteger <- if (length(mat@x) > 0) {
-  mean(abs(mat@x - round(mat@x)) > 1e-6)
-} else {
-  0
 }
 
-value_range <- if (length(mat@x) > 0) {
-  range(mat@x)
-} else {
-  c(0, 0)
+features_used <- gsub("_", "-", features_used)
+features_used <- make.unique(features_used)
+
+rownames(data_mat) <- features_used
+rownames(counts_mat) <- features_used
+
+matrix_summary <- bind_rows(
+  summarize_sparse_matrix(counts_mat, counts_source),
+  summarize_sparse_matrix(data_mat, data_source)
+)
+
+write_csv(matrix_summary, matrix_summary_csv)
+
+counts_fraction_noninteger <- matrix_summary$fraction_noninteger[
+  matrix_summary$source == counts_source
+]
+
+data_fraction_noninteger <- matrix_summary$fraction_noninteger[
+  matrix_summary$source == data_source
+]
+
+counts_value_range <- c(
+  matrix_summary$min_value[matrix_summary$source == counts_source],
+  matrix_summary$max_value[matrix_summary$source == counts_source]
+)
+
+data_value_range <- c(
+  matrix_summary$min_value[matrix_summary$source == data_source],
+  matrix_summary$max_value[matrix_summary$source == data_source]
+)
+
+if (counts_fraction_noninteger > 0.001) {
+  stop("Selected adult counts matrix is not integer/count-like.")
+}
+
+if (data_fraction_noninteger < 0.001) {
+  warning("Selected adult data matrix appears integer-like; expected normalized/log-like X.")
 }
 
 cat(
-  "\nLoaded adult CELLxGENE dataset from ",
-  matrix_source,
-  " | genes x cells = ",
-  nrow(mat),
-  " x ",
-  ncol(mat),
-  " | fraction non-integer = ",
-  signif(fraction_noninteger, 3),
-  " | range = [",
-  signif(value_range[[1]], 3),
-  ", ",
-  signif(value_range[[2]], 3),
-  "]",
-  " | symbol column = ",
-  ifelse(is.na(symbol_column), "none", symbol_column),
-  "\n",
+  "\nAdult matrix summary:\n",
+  "  counts source = ", counts_source,
+  " | fraction non-integer = ", signif(counts_fraction_noninteger, 4),
+  " | range = [", signif(counts_value_range[[1]], 4), ", ", signif(counts_value_range[[2]], 4), "]\n",
+  "  data source = ", data_source,
+  " | fraction non-integer = ", signif(data_fraction_noninteger, 4),
+  " | range = [", signif(data_value_range[[1]], 4), ", ", signif(data_value_range[[2]], 4), "]\n",
   sep = ""
 )
 
 adult <- CreateSeuratObject(
-  counts = mat,
+  counts = counts_mat,
   project = "adult_cellxgene_584027d5"
 )
+
+data_mat <- data_mat[rownames(adult), colnames(adult), drop = FALSE]
 
 adult <- SetAssayData(
   adult,
   assay = "RNA",
   layer = "data",
-  new.data = mat
+  new.data = data_mat
 )
-
 obs <- obs[colnames(adult), , drop = FALSE]
 adult <- AddMetaData(adult, metadata = obs)
 
@@ -291,18 +376,23 @@ feature_map <- data.frame(
   rowname_used = features_used,
   stringsAsFactors = FALSE
 )
+
 adult@misc$feature_map <- feature_map
 adult@misc$cellxgene_manifest <- as.data.frame(adult_dataset)
-adult@misc$matrix_source <- matrix_source
-adult@misc$note <- "adata$X was used as normalized/log-like expression and stored in both counts and data layers for compatibility with downstream integration."
+adult@misc$matrix_source_counts <- counts_source
+adult@misc$matrix_source_data <- data_source
+adult@misc$note <- "RNA/counts stores layers['decontXcounts']; RNA/data stores adata$X normalized/log-like expression."
 
 adult$dataset <- "adult"
 adult$developmental_stage <- "adult"
 adult$adult_reference_dataset <- "cellxgene_584027d5"
 adult$adult_dataset_id <- adult_dataset_id
-adult$source_database <- "CZ CELLxGENE Discover / CELLxGENE Census"
-adult$source_assay <- matrix_source
-adult$X_frac_noninteger <- fraction_noninteger
+adult$source_database <- "CZ CELLxGENE Discover / CELLXGENE Census"
+adult$source_counts <- counts_source
+adult$source_data <- data_source
+adult$counts_frac_noninteger <- counts_fraction_noninteger
+adult$data_frac_noninteger <- data_fraction_noninteger
+adult$X_frac_nonint <- data_fraction_noninteger
 
 write_csv(feature_map, feature_map_csv)
 
@@ -342,9 +432,12 @@ summary_lines <- c(
   paste("Output Seurat object:", adult_rds),
   paste("Cells:", ncol(adult)),
   paste("Genes:", nrow(adult)),
-  paste("Matrix source:", matrix_source),
-  paste("Fraction non-integer matrix values:", signif(fraction_noninteger, 4)),
-  paste("Matrix value range:", paste(signif(value_range, 4), collapse = " to ")),
+  paste("RNA/counts source:", counts_source),
+  paste("RNA/data source:", data_source),
+  paste("Counts fraction non-integer matrix values:", signif(counts_fraction_noninteger, 4)),
+  paste("Data fraction non-integer matrix values:", signif(data_fraction_noninteger, 4)),
+  paste("Counts value range:", paste(signif(counts_value_range, 4), collapse = " to ")),
+  paste("Data value range:", paste(signif(data_value_range, 4), collapse = " to ")),
   paste("Gene symbol column:", ifelse(is.na(symbol_column), "none", symbol_column)),
   paste("RNA layers:", rna_layers),
   "",
