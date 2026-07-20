@@ -137,9 +137,16 @@ prepare_deg_table <- function(tab) {
     filter(!is.na(gene), gene != "", !is.na(logFC), !is.na(FDR)) |>
     mutate(
       neglog10FDR = -log10(pmax(FDR, 1e-300)),
+
+      # The underlying edgeR table stores logFC as fetal vs. adult.
+      # For manuscript volcano plots, flip the plotted x-axis so that
+      # fetal-enriched genes appear on the left and adult-enriched genes
+      # appear on the right.
+      plot_logFC = -logFC,
+
       status = case_when(
-        FDR < fdr_cut & logFC >= lfc_cut ~ "Higher in fetal",
-        FDR < fdr_cut & logFC <= -lfc_cut ~ "Higher in adult",
+        FDR < fdr_cut & plot_logFC <= -lfc_cut ~ "Higher in fetal",
+        FDR < fdr_cut & plot_logFC >=  lfc_cut ~ "Higher in adult",
         TRUE ~ "Not significant"
       )
     )
@@ -175,7 +182,7 @@ make_volcano <- function(tab, celltype, xmax, ymax) {
       slice_head(n = label_top_each_side)
   ) |>
     distinct(gene, .keep_all = TRUE)
-  ggplot(plot_df, aes(x = logFC, y = neglog10FDR)) +
+  ggplot(plot_df, aes(x = plot_logFC, y = neglog10FDR)) +
     geom_point(
       aes(color = point_color_group, shape = status),
       alpha = 0.85,
@@ -228,7 +235,7 @@ make_volcano <- function(tab, celltype, xmax, ymax) {
       name = NULL
     ) +
     labs(
-      x = "logFC, fetal vs. adult",
+      x = "logFC, adult vs. fetal",
       y = expression(-log[10]("FDR"))
     ) +
     theme_publication() +
@@ -280,7 +287,7 @@ if (nrow(all_deg) == 0) {
   stop("No DE rows available after filtering.")
 }
 
-xmax <- max(abs(all_deg$logFC), na.rm = TRUE)
+xmax <- max(abs(all_deg$plot_logFC), na.rm = TRUE)
 xmax <- ceiling(xmax * 10) / 10
 
 ymax <- max(all_deg$neglog10FDR, na.rm = TRUE)
@@ -292,7 +299,8 @@ write_csv(
     lfc_cut = lfc_cut,
     label_top_each_side = label_top_each_side,
     xmax = xmax,
-    ymax = ymax
+    ymax = ymax,
+    x_axis_note = "plot_logFC = -edgeR_logFC; negative values indicate higher fetal expression; positive values indicate higher adult expression"
   ),
   file.path(out_table_dir, "PSEUDOBULK_edgeR_volcano_plot_settings.csv")
 )
@@ -340,7 +348,7 @@ for (celltype in names(deg_tables)) {
   ) |>
     distinct(gene, .keep_all = TRUE) |>
     mutate(celltype = celltype) |>
-    select(celltype, gene, logFC, FDR, status)
+    select(celltype, gene, logFC, plot_logFC, FDR, status)
 
   label_rows[[length(label_rows) + 1]] <- label_df
 
@@ -380,7 +388,8 @@ summary_lines <- c(
   paste("Skipped cell types:", paste(skip_celltypes, collapse = ", ")),
   paste("Plotted cell types:", paste(plot_summary$celltype, collapse = ", ")),
   paste("Shared x-axis maximum:", xmax),
-  paste("Shared y-axis maximum:", ymax)
+  paste("Shared y-axis maximum:", ymax),
+  "Volcano x-axis note: plot_logFC = -edgeR logFC; negative values indicate higher fetal expression; positive values indicate higher adult expression."
 )
 
 writeLines(
