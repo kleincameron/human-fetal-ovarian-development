@@ -5,6 +5,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(readr)
   library(scales)
+  library(cowplot)
 })
 
 set.seed(42)
@@ -124,6 +125,15 @@ plot_definitions <- list(
     title = "Erythroid states"
   )
 )
+
+display_annotation <- function(fine_subcluster, final_annotation) {
+  case_when(
+    fine_subcluster == "germ_0" ~ "Atresia-stressed",
+    fine_subcluster == "germ_6" ~ "Clearance-associated",
+    TRUE ~ final_annotation
+  )
+}
+
 order_subclusters <- function(metadata) {
   metadata |>
     distinct(major_cell_type, fine_subcluster, final_annotation) |>
@@ -145,6 +155,53 @@ make_fallback_colors <- function(missing_subclusters) {
   names(fallback) <- missing_subclusters
   fallback
 }
+save_plot_with_fixed_panel_width <- function(
+  plot,
+  filename,
+  panel_width = 4.0,
+  legend_width = 2.0,
+  height = 3.0,
+  dpi = 600
+) {
+  legend <- cowplot::get_legend(
+    plot +
+      theme(
+        legend.position = "right",
+        legend.background = element_rect(fill = "white", color = NA),
+        legend.box.background = element_rect(fill = "white", color = NA)
+      )
+  )
+
+  plot_panel <- plot +
+    theme(
+      legend.position = "none",
+      plot.margin = margin(4, 10, 10, 4),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+
+  combined_plot <- cowplot::plot_grid(
+    plot_panel,
+    legend,
+    nrow = 1,
+    rel_widths = c(panel_width, legend_width),
+    align = "h"
+  )
+
+  combined_plot <- cowplot::ggdraw(combined_plot) +
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+
+  save_publication_plot(
+    combined_plot,
+    filename,
+    width = panel_width + legend_width,
+    height = height,
+    dpi = dpi
+  )
+}
 
 make_proportion_plot <- function(metadata, plot_definition, weeks) {
   plot_id <- plot_definition$plot_id
@@ -162,11 +219,14 @@ make_proportion_plot <- function(metadata, plot_definition, weeks) {
 
   annotation_lookup <- plot_metadata |>
     distinct(fine_subcluster, final_annotation, major_cell_type) |>
-    mutate(fine_subcluster = factor(fine_subcluster, levels = subcluster_levels)) |>
+    mutate(
+      display_annotation = display_annotation(fine_subcluster, final_annotation),
+      fine_subcluster = factor(fine_subcluster, levels = subcluster_levels)
+    ) |>
     arrange(fine_subcluster)
 
-  final_annotation_levels <- annotation_lookup$final_annotation
-  names(final_annotation_levels) <- annotation_lookup$fine_subcluster
+  display_annotation_levels <- annotation_lookup$display_annotation
+  names(display_annotation_levels) <- annotation_lookup$fine_subcluster
 
   count_table <- plot_metadata |>
     count(gestational_week, fine_subcluster, final_annotation, major_cell_type, name = "n_cells") |>
@@ -190,7 +250,8 @@ make_proportion_plot <- function(metadata, plot_definition, weeks) {
     mutate(
       plot_id = plot_id,
       fine_subcluster = factor(fine_subcluster, levels = subcluster_levels),
-      final_annotation = factor(final_annotation, levels = final_annotation_levels)
+      final_annotation = factor(final_annotation),
+      display_annotation = factor(display_annotation, levels = display_annotation_levels)
     ) |>
     arrange(gestational_week, fine_subcluster)
 
@@ -200,24 +261,26 @@ make_proportion_plot <- function(metadata, plot_definition, weeks) {
   if (length(missing_colors) > 0) {
     subcluster_colors <- c(subcluster_colors, make_fallback_colors(missing_colors))
   }
+
   subcluster_colors <- subcluster_colors[subcluster_levels]
-  final_annotation_colors <- subcluster_colors
-  names(final_annotation_colors) <- final_annotation_levels
+  display_annotation_colors <- subcluster_colors
+  names(display_annotation_colors) <- display_annotation_levels
 
   figure_width <- 5.0
   figure_height <- 3.0
-
+  panel_width <- 4.0
+  legend_width <- 2.0
   p <- ggplot(
     count_table,
     aes(
       x = gestational_week,
       y = proportion,
-      fill = final_annotation,
-      group = final_annotation
+      fill = display_annotation,
+      group = display_annotation
     )
   ) +
     geom_area(color = NA, alpha = 1) +
-    scale_fill_manual(values = final_annotation_colors, drop = FALSE) +
+    scale_fill_manual(values = display_annotation_colors, drop = FALSE) +
     scale_y_continuous(
       labels = label_percent(accuracy = 1),
       limits = c(0, 1),
@@ -226,7 +289,7 @@ make_proportion_plot <- function(metadata, plot_definition, weeks) {
     scale_x_continuous(
       breaks = weeks,
       labels = paste0(weeks, "w"),
-      expand = expansion(mult = c(0.01, 0.01))
+      expand = expansion(mult = c(0.02, 0.05))
     ) +
     labs(
       x = "Gestational age",
@@ -245,10 +308,11 @@ make_proportion_plot <- function(metadata, plot_definition, weeks) {
       legend.key.width = unit(0.30, "cm")
     )
 
-  save_publication_plot(
+  save_plot_with_fixed_panel_width(
     p,
     file.path(out_figure_dir, paste0(plot_definition$output_prefix, ".png")),
-    width = figure_width,
+    panel_width = panel_width,
+    legend_width = legend_width,
     height = figure_height,
     dpi = 600
   )
@@ -272,6 +336,7 @@ missing_cols <- setdiff(required_cols, colnames(seu@meta.data))
 if (length(missing_cols) > 0) {
   stop("Missing required metadata columns: ", paste(missing_cols, collapse = ", "))
 }
+
 metadata <- seu@meta.data |>
   mutate(
     gestational_week = as.numeric(gestational_week),
@@ -293,7 +358,6 @@ extra_cell_types <- setdiff(unique(metadata$major_cell_type), celltype_order)
 if (length(extra_cell_types) > 0) {
   stop("Unexpected major cell types: ", paste(extra_cell_types, collapse = ", "))
 }
-
 weeks <- sort(unique(metadata$gestational_week))
 
 plot_tables <- lapply(
@@ -316,7 +380,8 @@ color_table <- tibble(
 ) |>
   left_join(
     metadata |>
-      distinct(fine_subcluster, final_annotation, major_cell_type),
+      distinct(fine_subcluster, final_annotation, major_cell_type) |>
+      mutate(display_annotation = display_annotation(fine_subcluster, final_annotation)),
     by = "fine_subcluster"
   ) |>
   arrange(major_cell_type, fine_subcluster)
@@ -333,6 +398,8 @@ summary_lines <- c(
   paste("Gestational weeks:", paste(paste0(weeks, "w"), collapse = ", ")),
   paste("Plots generated:", length(plot_tables)),
   paste("Plot IDs:", paste(vapply(plot_definitions, `[[`, character(1), "plot_id"), collapse = ", ")),
+  "Figure-only abbreviated labels: germ_0 = Atresia-stressed; germ_6 = Clearance-associated",
+  "Fixed panel layout: graphical panel width is held constant across plots.",
   paste("Output directory:", results_root)
 )
 
