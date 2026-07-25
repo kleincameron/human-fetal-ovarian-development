@@ -1,0 +1,4 @@
+sample_id,gestational_week,platform,mtx_dir,coords_path,include,notes
+24w_bmk_cellbin,24,BMK_ST,processed_spatial/BMK_ST/24w/cell_split/mtx,processed_spatial/BMK_ST/24w/cell_split/mtx/barcodes_pos.tsv.gz,TRUE,example path after downloading processed data
+25w_bmk_cellbin,25,BMK_ST,processed_spatial/BMK_ST/25w/cell_split/mtx,processed_spatial/BMK_ST/25w/cell_split/mtx/barcodes_pos.tsv.gz,TRUE,example path after downloading processed data
+26p4w_bmk_cellbin,26.5,BMK_ST,processed_spatial/BMK_ST/26p4w/cell_split/mtx,processed_spatial/BMK_ST/26p4w/cell_split/mtx/barcodes_pos.tsv.gz,TRUE,example path after downloading processed data

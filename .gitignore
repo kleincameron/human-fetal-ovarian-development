@@ -39,3 +39,8 @@ config/snrna_samples.csv
 
 # Public per-cell annotation table used to rebuild annotated snRNA-seq object
 !metadata/snRNAseq_cell_annotations.csv
+
+# Local/private spatial manifests
+metadata/spatial_bmk_samples.csv
+metadata/spatial_samples.csv
+metadata/xenium_samples.csv
