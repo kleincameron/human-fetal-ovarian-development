@@ -44,3 +44,6 @@ config/snrna_samples.csv
 metadata/spatial_bmk_samples.csv
 metadata/spatial_samples.csv
 metadata/xenium_samples.csv
+
+# Runtime logs
+scvi_log/
