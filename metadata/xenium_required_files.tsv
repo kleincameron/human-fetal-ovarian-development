@@ -1,0 +1,12 @@
+file_or_directoryrequired_for_this_scriptrecommended_for_public_archivepurpose
+cell_feature_matrix.h5yesyesCell-by-feature expression matrix loaded into the Xenium assay.
+cells.csv.gzyesyesCell metadata and centroid coordinates used by LoadXenium.
+cell_boundaries.csv.gzyesyesCell segmentation polygons used for the Xenium FOV.
+nucleus_boundaries.csv.gznoyesNuclear segmentation polygons; not required by this first label-transfer script but useful for future spatial visualization.
+transcripts.csv.gznoyesPer-transcript molecule table; not loaded by this script because molecule.coordinates is disabled, but needed for molecule-level analyses.
+transcripts.parquetnoyesNewer equivalent or alternative transcript table format in some Xenium output bundles.
+morphology_focus.ome.tifnoyesMorphology image; not used by this first script but should be archived for image-backed figures.
+morphology_focus/noyesNewer morphology-focus image directory format, if present.
+experiment.xeniumnoyesRun/provenance metadata.
+gene_panel.jsonnoyesXenium gene panel definition/provenance.
+analysis_summary.htmlnoyes10x analysis summary and QC report.

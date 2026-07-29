@@ -51,3 +51,6 @@ scvi_log/
 # Python runtime/cache files
 __pycache__/
 *.py[cod]
+
+# Local Xenium raw-data paths
+config/xenium_samples.csv
