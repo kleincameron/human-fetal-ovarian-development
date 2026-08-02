@@ -76,24 +76,24 @@ max_spatial_plot_cells <- 100000
 # -------------------------------------------------------------------------
 xenium_group_colors <- c(
   "Stroma: cortical" = "#9C27B0",
-  "Granulosa: supportive pre-granulosa" = "#E69F00",
-  "Granulosa: primordial follicle" = "#FDB462",
+  "Granulosa: supportive pre-granulosa" = "#9f00a9",
+  "Granulosa: primordial follicle" = "#000bff",
   "Immune: tissue macrophages" = "#FFD92F",
   "Granulosa: morphogenetic RELN+" = "#FFA54F",
-  "Granulosa: signaling" = "#D55E00",
-  "Germ: primordial follicle oocytes" = "#2C7FB8",
+  "Granulosa: signaling" = "#e46eff",
+  "Germ: primordial follicle oocytes" = "#000bff",
   "Ambiguous_subcluster" = "#999999",
-  "Germ: stalled meiotic" = "#4DBBD5",
+  "Germ: stalled meiotic" = "#ff0307",
   "Endothelial: angiogenic" = "#FF4FA3",
   "Immune: NK T cells" = "#E6AB02",
-  "Germ: pachytene/diplotene" = "#00C1A2",
-  "Germ: leptotene/zygotene" = "#00A087",
+  "Germ: pachytene/diplotene" = "#9f00a9",
+  "Germ: leptotene/zygotene" = "#e46eff",
   "Stroma: proliferative progenitors" = "#8E63CE",
   "Mural: pericytes" = "#E41A1C",
-  "Granulosa: epithelial-like" = "#F28E2B",
+  "Granulosa: epithelial-like" = "#ff0307",
   "Degenerated: clearance-associated follicle cells" = "#B0B0B0",
   "Stroma: medullary" = "#7B61FF",
-  "Granulosa: proliferative progenitors" = "#FF7F00",
+  "Granulosa: proliferative progenitors" = "#ff3c7c",
   "Mural: contractile VSMC" = "#B22222",
   "Stroma: signaling" = "#6A3D9A",
   "Degenerated: atresia-stressed follicle cells" = "#6B6B6B",
@@ -679,7 +679,7 @@ run_lineage <- function(lineage, spec, all_data, outer, inner) {
       annotations_analyzed = length(annotation_order),
       min_cells_filter = spec$min_cells,
       order_mode = spec$order_mode,
-      color_source = "hardcoded Xenium Explorer manuscript group colors"
+      color_source = "hardcoded cortical centrality manuscript colors"
     )
   )
 }
