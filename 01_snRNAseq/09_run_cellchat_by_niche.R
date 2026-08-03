@@ -5,6 +5,7 @@ suppressPackageStartupMessages({
   library(SeuratObject)
   library(Matrix)
   library(CellChat)
+  library(igraph)
   library(dplyr)
   library(readr)
   library(tibble)
@@ -70,6 +71,33 @@ min_cells_per_group <- as.integer(Sys.getenv("CELLCHAT_MIN_CELLS_PER_GROUP", uns
 top_n_interactions <- as.integer(Sys.getenv("CELLCHAT_TOP_N_INTERACTIONS", unset = "200"))
 save_cellchat_objects <- tolower(Sys.getenv("CELLCHAT_SAVE_OBJECTS", unset = "false")) %in% c("true", "t", "1", "yes", "y")
 
+# CellChat circle-plot display scaling.
+# These affect figure readability only; exported tables retain raw CellChat values.
+circle_plot_width <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_WIDTH", unset = "12.5"))
+circle_plot_height <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_HEIGHT", unset = "12.5"))
+
+# Node display scale.
+circle_vertex_size_max <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_VERTEX_SIZE_MAX", unset = "34"))
+circle_vertex_min_scaled <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_VERTEX_MIN_SCALED", unset = "0.30"))
+
+# Edge display scale. Positive edges are linearly rescaled but not allowed to disappear.
+circle_edge_width_max <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_WIDTH_MAX", unset = "16"))
+circle_edge_min_scaled <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_MIN_SCALED", unset = "0.24"))
+circle_edge_alpha <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_ALPHA", unset = "0.68"))
+circle_edge_curved <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_CURVED", unset = "0.22"))
+
+# Arrows are scaled with edge display width.
+circle_arrow_size_min <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_ARROW_SIZE_MIN", unset = "0.55"))
+circle_arrow_size_max <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_ARROW_SIZE_MAX", unset = "1.25"))
+
+# Labels are drawn manually outside the graph.
+circle_vertex_label_cex <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_VERTEX_LABEL_CEX", unset = "1.25"))
+circle_label_radius <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_LABEL_RADIUS", unset = "1.48"))
+circle_plot_xlim <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_PLOT_XLIM", unset = "2.45"))
+
+circle_margin <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_MARGIN", unset = "0.03"))
+circle_base_par_cex <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_BASE_PAR_CEX", unset = "1.0"))
+
 if (!communication_mean_type %in% c("truncatedMean", "triMean")) {
   stop("CELLCHAT_MEAN_TYPE must be 'truncatedMean' or 'triMean'.")
 }
@@ -120,36 +148,130 @@ niche_list <- list(
   )
 )
 
+# ============================================================
+# XENIUM-STANDARDIZED SUBCLUSTER COLORS
+# ============================================================
+# Names are the final_annotation labels used by the snRNA-seq object.
+# Colors are matched to the established Xenium subcluster palette.
+# If a displayed group is missing from this palette, it falls back to
+# the established broad cell-type color.
+
 subcluster_colors <- c(
-  "Meiotic-entry germ cells" = "#F8766D",
-  "Stalled meiotic germ cells" = "#D55E5E",
-  "Mitotic oogonia" = "#FA9A91",
-  "Pachytene/diplotene germ cells" = "#C84E4E",
-  "Leptotene/zygotene germ cells" = "#E76F6A",
-  "Primordial follicle oocytes" = "#B83B5E",
-  "Degenerating germ cells" = "#A63A50",
-  "Atresia-stressed degenerating follicle cells" = "#6B6B6B",
-  "Clearance-associated degenerating follicle cells" = "#B0B0B0",
-
+  "Cortical stroma" = "#9C27B0",
   "Supportive pre-granulosa" = "#E69F00",
-  "Signaling granulosa" = "#F28E2B",
-  "Primordial follicle granulosa" = "#D55E00",
-  "Morphogenetic granulosa RELN+" = "#F4A64B",
-  "Morphogenetic granulosa SOX5+" = "#FFB45A",
-  "Matrix-remodeling granulosa" = "#C96A08",
-  "Epithelial-like granulosa" = "#FDB462",
+  "Primordial follicle granulosa" = "#FDB462",
+  "Tissue macrophages" = "#FFD92F",
+  "Morphogenetic granulosa RELN+" = "#FFA54F",
+  "Signaling granulosa" = "#D55E00",
+  "Primordial follicle oocytes" = "#2C7FB8",
+  "Ambiguous_subcluster" = "#999999",
+  "Stalled meiotic germ cells" = "#4DBBD5",
+  "Angiogenic endothelia" = "#FF4FA3",
+  "NK T cells" = "#E6AB02",
+  "Pachytene/diplotene germ cells" = "#00C1A2",
+  "Leptotene/zygotene germ cells" = "#00A087",
+  "Proliferative stromal progenitors" = "#8E63CE",
+  "Pericytes" = "#E41A1C",
+  "Epithelial-like granulosa" = "#F28E2B",
+  "Clearance-associated degenerating follicle cells" = "#B0B0B0",
+  "Medullary stroma" = "#7B61FF",
   "Proliferative granulosa progenitors" = "#FF7F00",
-  "Stress-activated granulosa" = "#B85C00",
-
-  "Cortical stroma" = "#00BF7D",
-  "Medullary stroma" = "#1B9E77",
-  "Signaling stroma" = "#2FAF74",
-  "Proliferative stromal progenitors" = "#59C98F",
-  "Perineural stroma" = "#0F7F5C",
-
-  "Tissue macrophages" = "#E6AB02",
-  "NK T cells" = "#FFD92F"
+  "Contractile VSMC" = "#B22222",
+  "Signaling stroma" = "#6A3D9A",
+  "Atresia-stressed degenerating follicle cells" = "#6B6B6B",
+  "Late erythroid" = "#6F3F1F",
+  "Perineural stroma" = "#C77CFF",
+  "Matrix-remodeling granulosa" = "#C77C2E",
+  "Early erythroid" = "#A66A3F",
+  "Degenerating germ cells" = "#1B9E77"
 )
+
+get_celltype_color <- function(cell_type) {
+  if (
+    exists("celltype_colors", inherits = TRUE) &&
+      cell_type %in% names(celltype_colors)
+  ) {
+    return(unname(celltype_colors[[cell_type]]))
+  }
+
+  fallback <- c(
+    germ = "#1B9E77",
+    degenerated = "#CFCFCF",
+    granulosa = "#D95F02",
+    stroma = "#7570B3",
+    endothelial = "#E7298A",
+    mural = "#66A61E",
+    immune = "#E6AB02",
+    erythroid = "#A6761D",
+    ambiguous = "#999999",
+    unknown = "#999999"
+  )
+
+  if (cell_type %in% names(fallback)) {
+    unname(fallback[[cell_type]])
+  } else {
+    unname(fallback[["unknown"]])
+  }
+}
+
+annotation_to_celltype <- function(x) {
+  dplyr::case_when(
+    x == "Ambiguous_subcluster" ~ "ambiguous",
+    grepl("Atresia-stressed|Clearance-associated", x, ignore.case = TRUE) ~ "degenerated",
+    grepl("granulosa", x, ignore.case = TRUE) ~ "granulosa",
+    grepl("stroma", x, ignore.case = TRUE) ~ "stroma",
+    grepl("macrophage|NK T|immune", x, ignore.case = TRUE) ~ "immune",
+    grepl("endothel", x, ignore.case = TRUE) ~ "endothelial",
+    grepl("pericyte|VSMC|mural", x, ignore.case = TRUE) ~ "mural",
+    grepl("erythroid", x, ignore.case = TRUE) ~ "erythroid",
+    grepl("germ|oogonia|oocyte|meiotic|pachytene|diplotene|leptotene|zygotene", x, ignore.case = TRUE) ~ "germ",
+    TRUE ~ "unknown"
+  )
+}
+
+resolve_subcluster_color_table <- function(group_names, context = "CellChat plot") {
+  direct_color <- unname(subcluster_colors[group_names])
+  has_direct_color <- !is.na(direct_color)
+
+  inferred_cell_type <- annotation_to_celltype(group_names)
+  fallback_color <- vapply(inferred_cell_type, get_celltype_color, character(1))
+
+  color <- ifelse(has_direct_color, direct_color, fallback_color)
+
+  color_source <- ifelse(
+    has_direct_color,
+    "xenium_subcluster_palette",
+    paste0("broad_celltype_fallback:", inferred_cell_type)
+  )
+
+  missing_direct <- group_names[!has_direct_color]
+
+  if (length(missing_direct) > 0) {
+    message(
+      "Using broad cell-type fallback colors for groups in ",
+      context,
+      ":
+  ",
+      paste(missing_direct, collapse = "
+  ")
+    )
+  }
+
+  tibble(
+    group = group_names,
+    color = unname(color),
+    color_source = color_source,
+    inferred_cell_type = inferred_cell_type
+  )
+}
+
+resolve_subcluster_colors <- function(group_names, context = "CellChat plot") {
+  color_table <- resolve_subcluster_color_table(group_names, context = context)
+  out <- color_table$color
+  names(out) <- color_table$group
+  out
+}
+
 
 format_niche_label <- function(x) {
   tools::toTitleCase(gsub("_", " ", x))
@@ -251,7 +373,12 @@ save_base_dual <- function(plot_fun, pdf_out, png_out, width = 9, height = 9, re
     family = publication_font_family,
     useDingbats = FALSE
   )
-  par(family = publication_font_family, cex = publication_base_size / 10)
+  par(
+    family = publication_font_family,
+    cex = circle_base_par_cex,
+    mar = c(0.3, 0.3, 0.3, 0.3),
+    xpd = NA
+  )
   plot_fun()
   dev.off()
 
@@ -275,10 +402,185 @@ save_base_dual <- function(plot_fun, pdf_out, png_out, width = 9, height = 9, re
     )
   }
 
-  par(family = publication_font_family, cex = publication_base_size / 10)
+  par(
+    family = publication_font_family,
+    cex = circle_base_par_cex,
+    mar = c(0.3, 0.3, 0.3, 0.3),
+    xpd = NA
+  )
   plot_fun()
   dev.off()
 }
+
+
+rescale_positive_values_for_circle <- function(x, min_scaled = 0.1, max_scaled = 1) {
+  out <- as.numeric(x)
+  names(out) <- names(x)
+
+  positive <- out > 0 & !is.na(out)
+  if (!any(positive)) return(out)
+
+  rng <- range(out[positive], na.rm = TRUE)
+  if (!all(is.finite(rng))) return(out)
+
+  if (diff(rng) == 0) {
+    out[positive] <- max_scaled
+    return(out)
+  }
+
+  out[positive] <- min_scaled + (out[positive] - rng[1]) / diff(rng) * (max_scaled - min_scaled)
+  out
+}
+
+rescale_positive_matrix_for_circle <- function(mat, min_scaled = 0.1, max_scaled = 1) {
+  out <- mat
+  positive <- out > 0 & !is.na(out)
+  if (!any(positive)) return(out)
+
+  rng <- range(out[positive], na.rm = TRUE)
+  if (!all(is.finite(rng))) return(out)
+
+  if (diff(rng) == 0) {
+    out[positive] <- max_scaled
+    return(out)
+  }
+
+  out[positive] <- min_scaled + (out[positive] - rng[1]) / diff(rng) * (max_scaled - min_scaled)
+  out
+}
+
+abbreviate_circle_group_labels <- function(x) {
+  dplyr::recode(
+    x,
+    "Atresia-stressed degenerating follicle cells" = "Atresia-stressed",
+    "Clearance-associated degenerating follicle cells" = "Clearance-associated",
+    .default = x
+  )
+}
+
+make_circle_layout <- function(group_names) {
+  n <- length(group_names)
+  theta <- seq(from = pi / 2, to = pi / 2 - 2 * pi, length.out = n + 1)[seq_len(n)]
+
+  layout <- cbind(
+    x = cos(theta),
+    y = sin(theta)
+  )
+
+  rownames(layout) <- group_names
+
+  list(
+    layout = layout,
+    theta = theta
+  )
+}
+
+plot_cellchat_strength_circle <- function(weight_mat, group_size, color_use, display_labels) {
+  stopifnot(length(display_labels) == nrow(weight_mat))
+  stopifnot(length(display_labels) == ncol(weight_mat))
+
+  plot_weight_matrix <- rescale_positive_matrix_for_circle(
+    weight_mat,
+    min_scaled = circle_edge_min_scaled,
+    max_scaled = 1
+  )
+
+  rownames(plot_weight_matrix) <- display_labels
+  colnames(plot_weight_matrix) <- display_labels
+
+  plot_group_size <- rescale_positive_values_for_circle(
+    group_size,
+    min_scaled = circle_vertex_min_scaled,
+    max_scaled = 1
+  )
+  names(plot_group_size) <- display_labels
+
+  color_use_display <- color_use
+  names(color_use_display) <- display_labels
+
+  circle_layout <- make_circle_layout(display_labels)
+  layout_mat <- circle_layout$layout
+  theta <- circle_layout$theta
+  names(theta) <- display_labels
+
+  g <- igraph::graph_from_adjacency_matrix(
+    as.matrix(plot_weight_matrix),
+    mode = "directed",
+    weighted = TRUE,
+    diag = TRUE
+  )
+
+  vertex_names <- igraph::V(g)$name
+
+  vertex_size <- plot_group_size[vertex_names] * circle_vertex_size_max
+  vertex_color <- unname(color_use_display[vertex_names])
+
+  if (length(igraph::E(g)) > 0) {
+    edge_weight <- igraph::E(g)$weight
+    edge_width <- edge_weight * circle_edge_width_max
+
+    edge_arrow_size <- circle_arrow_size_min +
+      edge_weight * (circle_arrow_size_max - circle_arrow_size_min)
+
+    edge_ends <- igraph::ends(g, igraph::E(g), names = TRUE)
+    edge_source <- edge_ends[, 1]
+    edge_color <- grDevices::adjustcolor(
+      color_use_display[edge_source],
+      alpha.f = circle_edge_alpha
+    )
+    edge_loop_angle <- theta[edge_source]
+  } else {
+    edge_width <- numeric(0)
+    edge_arrow_size <- numeric(0)
+    edge_color <- character(0)
+    edge_loop_angle <- numeric(0)
+  }
+
+  graphics::plot(
+    g,
+    layout = layout_mat[vertex_names, , drop = FALSE],
+    rescale = FALSE,
+    xlim = c(-circle_plot_xlim, circle_plot_xlim),
+    ylim = c(-circle_plot_xlim, circle_plot_xlim),
+    asp = 1,
+    margin = rep(circle_margin, 4),
+    vertex.color = vertex_color,
+    vertex.frame.color = "white",
+    vertex.frame.width = 0.4,
+    vertex.size = vertex_size,
+    vertex.label = NA,
+    edge.color = edge_color,
+    edge.width = edge_width,
+    edge.arrow.size = edge_arrow_size,
+    edge.curved = circle_edge_curved,
+    edge.loop.angle = edge_loop_angle
+  )
+
+  label_xy <- layout_mat[display_labels, , drop = FALSE] * circle_label_radius
+
+  for (i in seq_along(display_labels)) {
+    x <- label_xy[i, 1]
+    y <- label_xy[i, 2]
+
+    adj_x <- if (x > 0.10) {
+      0
+    } else if (x < -0.10) {
+      1
+    } else {
+      0.5
+    }
+
+    graphics::text(
+      x = x,
+      y = y,
+      labels = display_labels[i],
+      adj = c(adj_x, 0.5),
+      cex = circle_vertex_label_cex,
+      family = publication_font_family
+    )
+  }
+}
+
 
 make_group_pair_table <- function(cellchat, niche_name) {
   count_mat <- cellchat@net$count
@@ -313,14 +615,10 @@ run_cellchat_for_niche <- function(seu, niche_name, niche_labels) {
       paste(missing_niche_labels, collapse = "\n")
     )
   }
-  missing_colors <- setdiff(niche_labels, names(subcluster_colors))
-
-  if (length(missing_colors) > 0) {
-    stop(
-      "Missing colors for niche '", niche_name, "':\n",
-      paste(missing_colors, collapse = "\n")
-    )
-  }
+  invisible(resolve_subcluster_colors(
+    niche_labels,
+    context = paste0("niche definition: ", niche_name)
+  ))
 
   cells_initial <- rownames(seu@meta.data)[seu$final_annotation %in% niche_labels]
 
@@ -463,16 +761,10 @@ run_cellchat_for_niche <- function(seu, niche_name, niche_labels) {
 
   group_names <- rownames(cellchat@net$count)
 
-  missing_group_colors <- setdiff(group_names, names(subcluster_colors))
-
-  if (length(missing_group_colors) > 0) {
-    stop(
-      "Missing colors for groups in niche '", niche_name, "':\n",
-      paste(missing_group_colors, collapse = "\n")
-    )
-  }
-
-  color_use <- subcluster_colors[group_names]
+  color_use <- resolve_subcluster_colors(
+    group_names,
+    context = paste0("CellChat circle plot: ", niche_name)
+  )
 
   group_size <- as.numeric(table(cellchat@idents))
   names(group_size) <- names(table(cellchat@idents))
@@ -482,21 +774,21 @@ run_cellchat_for_niche <- function(seu, niche_name, niche_labels) {
     stop("Could not match group sizes to CellChat network groups for niche: ", niche_name)
   }
 
+  display_group_names <- abbreviate_circle_group_labels(group_names)
+
   save_base_dual(
     plot_fun = function() {
-      netVisual_circle(
-        cellchat@net$weight,
-        vertex.weight = group_size,
-        color.use = color_use,
-        weight.scale = TRUE,
-        label.edge = FALSE,
-        title.name = paste0(niche_name, ": interaction strength")
+      plot_cellchat_strength_circle(
+        weight_mat = cellchat@net$weight,
+        group_size = group_size,
+        color_use = color_use,
+        display_labels = display_group_names
       )
     },
     pdf_out = file.path(out_figure_dir, paste0("Circle_", niche_name, "_interaction_strength.pdf")),
     png_out = file.path(out_figure_dir, paste0("Circle_", niche_name, "_interaction_strength.png")),
-    width = 9,
-    height = 9
+    width = circle_plot_width,
+    height = circle_plot_height
   )
 
   summary_row <- tibble(
@@ -555,6 +847,19 @@ if (length(missing_labels) > 0) {
   )
 }
 
+color_map_all <- bind_rows(lapply(names(niche_list), function(niche_name) {
+  resolve_subcluster_color_table(
+    niche_list[[niche_name]],
+    context = paste0("niche definition: ", niche_name)
+  ) |>
+    mutate(niche = niche_name) |>
+    relocate(niche)
+}))
+
+write_csv(
+  color_map_all,
+  file.path(out_table_dir, "CellChat_snRNAseq_4_niches_color_map.csv")
+)
 results <- lapply(names(niche_list), function(niche_name) {
   run_cellchat_for_niche(
     seu = seu,
@@ -602,8 +907,9 @@ writeLines(
     "This script runs CellChat for four biologically defined snRNA-seq niches.",
     "It starts from the GitHub-generated annotated fetal snRNA-seq object.",
     "Minimal retained outputs only.",
-    "Final retained figures: one interaction-strength CellChat circle plot per niche.",
-    "Final retained tables: combined top LR interactions per niche, pathway-level interactions, aggregate group-pair network summary, CellChat niche summary, and group-count QC.",
+    "Final retained figures: one enlarged custom-rendered interaction-strength CellChat circle plot per niche.",
+    "Final retained tables: combined top LR interactions per niche, pathway-level interactions, aggregate group-pair network summary, CellChat niche summary, group-count QC, and the CellChat color map.",
+    "Circle plots are rendered from CellChat aggregate interaction weights using custom igraph plotting for larger nodes, thicker minimum edges, larger arrows, outside labels, shortened degenerating-state labels, and no plot titles. This scaling affects figures only, not exported interaction tables.",
     "No full per-niche LR tables, per-niche pathway tables, raw count/weight matrices, bubble plots, count-circle plots, signaling heatmaps, or per-niche sessionInfo files are saved.",
     paste("Assay:", assay_use),
     paste("Niches:", paste(names(niche_list), collapse = ", ")),
@@ -612,7 +918,18 @@ writeLines(
     paste("Minimum cells per group:", min_cells_per_group),
     paste("Maximum cells per group:", max_cells_per_group),
     paste("Top interactions retained per niche:", top_n_interactions),
-    paste("Save full CellChat objects:", save_cellchat_objects)
+    paste("Save full CellChat objects:", save_cellchat_objects),
+    paste("Circle plot width:", circle_plot_width),
+    paste("Circle plot height:", circle_plot_height),
+    paste("Circle vertex size max:", circle_vertex_size_max),
+    paste("Circle vertex minimum scaled display weight:", circle_vertex_min_scaled),
+    paste("Circle edge width max:", circle_edge_width_max),
+    paste("Circle edge minimum scaled display weight:", circle_edge_min_scaled),
+    paste("Circle vertex label cex:", circle_vertex_label_cex),
+    paste("Circle label radius:", circle_label_radius),
+    paste("Circle arrow size min:", circle_arrow_size_min),
+    paste("Circle arrow size max:", circle_arrow_size_max),
+    "CellChat circle plots use Xenium-standardized subcluster colors with broad cell-type fallback for missing subcluster-specific colors."
   ),
   file.path(out_log_dir, "CellChat_snRNAseq_4_niches_notes.txt")
 )
