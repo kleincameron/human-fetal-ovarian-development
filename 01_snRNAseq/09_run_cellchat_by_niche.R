@@ -70,31 +70,33 @@ communication_trim <- as.numeric(Sys.getenv("CELLCHAT_TRIM", unset = "0.1"))
 min_cells_per_group <- as.integer(Sys.getenv("CELLCHAT_MIN_CELLS_PER_GROUP", unset = "10"))
 top_n_interactions <- as.integer(Sys.getenv("CELLCHAT_TOP_N_INTERACTIONS", unset = "200"))
 save_cellchat_objects <- tolower(Sys.getenv("CELLCHAT_SAVE_OBJECTS", unset = "false")) %in% c("true", "t", "1", "yes", "y")
+use_existing_cellchat_results <- tolower(Sys.getenv("CELLCHAT_USE_EXISTING_RESULTS", unset = "false")) %in% c("true", "t", "1", "yes", "y")
+force_cellchat_rerun <- tolower(Sys.getenv("CELLCHAT_FORCE_RERUN", unset = "false")) %in% c("true", "t", "1", "yes", "y")
 
-# CellChat circle-plot display scaling.
-# These affect figure readability only; exported tables retain raw CellChat values.
 circle_plot_width <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_WIDTH", unset = "12.5"))
 circle_plot_height <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_HEIGHT", unset = "12.5"))
-
-# Node display scale.
 circle_vertex_size_max <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_VERTEX_SIZE_MAX", unset = "34"))
 circle_vertex_min_scaled <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_VERTEX_MIN_SCALED", unset = "0.30"))
-
-# Edge display scale. Positive edges are linearly rescaled but not allowed to disappear.
 circle_edge_width_max <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_WIDTH_MAX", unset = "16"))
-circle_edge_min_scaled <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_MIN_SCALED", unset = "0.24"))
-circle_edge_alpha <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_ALPHA", unset = "0.68"))
+circle_edge_min_scaled <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_MIN_SCALED", unset = "0.12"))
+circle_edge_alpha_max <- as.numeric(Sys.getenv(
+  "CELLCHAT_CIRCLE_EDGE_ALPHA_MAX",
+  unset = Sys.getenv("CELLCHAT_CIRCLE_EDGE_ALPHA", unset = "0.92")
+))
+circle_edge_alpha_min <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_ALPHA_MIN", unset = "0.26"))
+circle_edge_alpha_power <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_ALPHA_POWER", unset = "1.05"))
 circle_edge_curved <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_EDGE_CURVED", unset = "0.22"))
-
-# Arrows are scaled with edge display width.
 circle_arrow_size_min <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_ARROW_SIZE_MIN", unset = "0.55"))
 circle_arrow_size_max <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_ARROW_SIZE_MAX", unset = "1.25"))
-
-# Labels are drawn manually outside the graph.
+circle_self_loop_outward <- tolower(Sys.getenv(
+  "CELLCHAT_CIRCLE_SELF_LOOP_OUTWARD",
+  unset = Sys.getenv("CELLCHAT_CIRCLE_SELF_LOOP_USE_RADIAL_ANGLE", unset = "true")
+)) %in% c("true", "t", "1", "yes", "y")
+circle_loop_center_x <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_LOOP_CENTER_X", unset = "0"))
+circle_loop_center_y <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_LOOP_CENTER_Y", unset = "0"))
 circle_vertex_label_cex <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_VERTEX_LABEL_CEX", unset = "1.25"))
 circle_label_radius <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_LABEL_RADIUS", unset = "1.48"))
 circle_plot_xlim <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_PLOT_XLIM", unset = "2.45"))
-
 circle_margin <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_MARGIN", unset = "0.03"))
 circle_base_par_cex <- as.numeric(Sys.getenv("CELLCHAT_CIRCLE_BASE_PAR_CEX", unset = "1.0"))
 
@@ -272,10 +274,6 @@ resolve_subcluster_colors <- function(group_names, context = "CellChat plot") {
   out
 }
 
-
-format_niche_label <- function(x) {
-  tools::toTitleCase(gsub("_", " ", x))
-}
 
 extract_data_matrix <- function(seu, cells, assay = "RNA") {
   DefaultAssay(seu) <- assay
@@ -475,6 +473,33 @@ make_circle_layout <- function(group_names) {
   )
 }
 
+scale_circle_edge_alpha <- function(edge_weight) {
+  x <- as.numeric(edge_weight)
+  x[is.na(x)] <- 0
+  x <- pmax(pmin(x, 1), 0)
+
+  alpha <- circle_edge_alpha_min +
+    (x ^ circle_edge_alpha_power) * (circle_edge_alpha_max - circle_edge_alpha_min)
+
+  pmax(pmin(alpha, 1), 0)
+}
+
+make_circle_edge_colors <- function(edge_source, edge_weight, color_use_display) {
+  edge_alpha <- scale_circle_edge_alpha(edge_weight)
+
+  mapply(
+    function(source, alpha) {
+      grDevices::adjustcolor(
+        color_use_display[[source]],
+        alpha.f = alpha
+      )
+    },
+    source = edge_source,
+    alpha = edge_alpha,
+    USE.NAMES = FALSE
+  )
+}
+
 plot_cellchat_strength_circle <- function(weight_mat, group_size, color_use, display_labels) {
   stopifnot(length(display_labels) == nrow(weight_mat))
   stopifnot(length(display_labels) == ncol(weight_mat))
@@ -500,8 +525,6 @@ plot_cellchat_strength_circle <- function(weight_mat, group_size, color_use, dis
 
   circle_layout <- make_circle_layout(display_labels)
   layout_mat <- circle_layout$layout
-  theta <- circle_layout$theta
-  names(theta) <- display_labels
 
   g <- igraph::graph_from_adjacency_matrix(
     as.matrix(plot_weight_matrix),
@@ -509,7 +532,6 @@ plot_cellchat_strength_circle <- function(weight_mat, group_size, color_use, dis
     weighted = TRUE,
     diag = TRUE
   )
-
   vertex_names <- igraph::V(g)$name
 
   vertex_size <- plot_group_size[vertex_names] * circle_vertex_size_max
@@ -524,15 +546,32 @@ plot_cellchat_strength_circle <- function(weight_mat, group_size, color_use, dis
 
     edge_ends <- igraph::ends(g, igraph::E(g), names = TRUE)
     edge_source <- edge_ends[, 1]
-    edge_color <- grDevices::adjustcolor(
-      color_use_display[edge_source],
-      alpha.f = circle_edge_alpha
+    edge_target <- edge_ends[, 2]
+
+    edge_color <- make_circle_edge_colors(
+      edge_source = edge_source,
+      edge_weight = edge_weight,
+      color_use_display = color_use_display
     )
-    edge_loop_angle <- theta[edge_source]
+
+    edge_curved_use <- rep(circle_edge_curved, length(edge_weight))
+
+    edge_loop_angle <- rep(0, length(edge_weight))
+    self_loop_idx <- which(edge_source == edge_target)
+
+    if (length(self_loop_idx) > 0 && isTRUE(circle_self_loop_outward)) {
+      loop_x <- layout_mat[edge_source[self_loop_idx], "x"]
+      loop_y <- layout_mat[edge_source[self_loop_idx], "y"]
+      edge_loop_angle[self_loop_idx] <- atan2(
+        circle_loop_center_y - loop_y,
+        loop_x - circle_loop_center_x
+      )
+    }
   } else {
     edge_width <- numeric(0)
     edge_arrow_size <- numeric(0)
     edge_color <- character(0)
+    edge_curved_use <- numeric(0)
     edge_loop_angle <- numeric(0)
   }
 
@@ -552,7 +591,7 @@ plot_cellchat_strength_circle <- function(weight_mat, group_size, color_use, dis
     edge.color = edge_color,
     edge.width = edge_width,
     edge.arrow.size = edge_arrow_size,
-    edge.curved = circle_edge_curved,
+    edge.curved = edge_curved_use,
     edge.loop.angle = edge_loop_angle
   )
 
@@ -601,6 +640,173 @@ make_group_pair_table <- function(cellchat, niche_name) {
     select(niche, source, target, n_interactions, interaction_weight) |>
     arrange(niche, desc(interaction_weight), desc(n_interactions), source, target)
 }
+
+
+generate_circle_figures_from_existing_tables <- function() {
+  aggregate_file <- file.path(
+    out_table_dir,
+    "COMBINED_all_niches_aggregate_network_by_group_pair.csv"
+  )
+
+  qc_file <- file.path(
+    out_table_dir,
+    "QC_cellchat_group_counts_by_niche.csv"
+  )
+
+  if (!file.exists(aggregate_file) || !file.exists(qc_file)) {
+    cat("Existing CellChat aggregate/QC tables not found; running full CellChat analysis.\n")
+    return(FALSE)
+  }
+
+  cat("\n============================================================\n")
+  cat("Existing CellChat aggregate tables detected.\n")
+  cat("Skipping CellChat inference and regenerating circle figures only.\n")
+  cat("Set CELLCHAT_FORCE_RERUN=true to force full CellChat analysis.\n")
+  cat("============================================================\n\n")
+
+  aggregate_network_all <- readr::read_csv(
+    aggregate_file,
+    show_col_types = FALSE
+  )
+
+  qc_all <- readr::read_csv(
+    qc_file,
+    show_col_types = FALSE
+  )
+
+  required_aggregate_cols <- c(
+    "niche",
+    "source",
+    "target",
+    "interaction_weight"
+  )
+
+  missing_aggregate_cols <- setdiff(required_aggregate_cols, colnames(aggregate_network_all))
+  if (length(missing_aggregate_cols) > 0) {
+    warning(
+      "Existing aggregate network table is missing required columns: ",
+      paste(missing_aggregate_cols, collapse = ", "),
+      ". Running full CellChat analysis instead."
+    )
+    return(FALSE)
+  }
+
+  if (!"n_cells" %in% colnames(qc_all)) {
+    warning("Existing QC table lacks n_cells column. Running full CellChat analysis instead.")
+    return(FALSE)
+  }
+  group_col <- if ("cellchat_group" %in% colnames(qc_all)) {
+    "cellchat_group"
+  } else if ("group" %in% colnames(qc_all)) {
+    "group"
+  } else {
+    NA_character_
+  }
+
+  if (is.na(group_col)) {
+    warning("Existing QC table lacks cellchat_group/group column. Running full CellChat analysis instead.")
+    return(FALSE)
+  }
+
+  color_map_all <- bind_rows(lapply(names(niche_list), function(niche_name) {
+    resolve_subcluster_color_table(
+      niche_list[[niche_name]],
+      context = paste0("niche definition: ", niche_name)
+    ) |>
+      mutate(niche = niche_name) |>
+      relocate(niche)
+  }))
+
+  write_csv(
+    color_map_all,
+    file.path(out_table_dir, "CellChat_snRNAseq_4_niches_color_map.csv")
+  )
+
+  for (niche_name in names(niche_list)) {
+    cat("Regenerating circle figure from existing tables: ", niche_name, "\n", sep = "")
+
+    group_names <- niche_list[[niche_name]]
+
+    agg_niche <- aggregate_network_all |>
+      filter(niche == niche_name)
+
+    if (nrow(agg_niche) == 0) {
+      warning("No aggregate network rows found for niche: ", niche_name)
+      next
+    }
+
+    weight_mat <- matrix(
+      0,
+      nrow = length(group_names),
+      ncol = length(group_names),
+      dimnames = list(group_names, group_names)
+    )
+
+    valid_edges <- agg_niche$source %in% group_names &
+      agg_niche$target %in% group_names
+
+    agg_valid <- agg_niche[valid_edges, , drop = FALSE]
+
+    if (nrow(agg_valid) > 0) {
+      weight_mat[cbind(agg_valid$source, agg_valid$target)] <-
+        as.numeric(agg_valid$interaction_weight)
+    }
+
+    qc_niche <- qc_all |>
+      filter(niche == niche_name)
+
+    group_size <- rep(1, length(group_names))
+    names(group_size) <- group_names
+
+    if (nrow(qc_niche) > 0) {
+      qc_groups <- as.character(qc_niche[[group_col]])
+      qc_counts <- as.numeric(qc_niche$n_cells)
+
+      keep_qc <- qc_groups %in% group_names & !is.na(qc_counts)
+      group_size[qc_groups[keep_qc]] <- qc_counts[keep_qc]
+    }
+
+    color_use <- resolve_subcluster_colors(
+      group_names,
+      context = paste0("CellChat circle plot from existing tables: ", niche_name)
+    )
+
+    display_group_names <- abbreviate_circle_group_labels(group_names)
+
+    save_base_dual(
+      plot_fun = function() {
+        plot_cellchat_strength_circle(
+          weight_mat = weight_mat,
+          group_size = group_size,
+          color_use = color_use,
+          display_labels = display_group_names
+        )
+      },
+      pdf_out = file.path(out_figure_dir, paste0("Circle_", niche_name, "_interaction_strength.pdf")),
+      png_out = file.path(out_figure_dir, paste0("Circle_", niche_name, "_interaction_strength.png")),
+      width = circle_plot_width,
+      height = circle_plot_height
+    )
+  }
+
+  writeLines(
+    c(
+      paste("Run:", Sys.time()),
+      paste("Aggregate network table:", aggregate_file),
+      paste("QC table:", qc_file),
+      "Mode: figure-only regeneration from existing CellChat aggregate tables.",
+      "Set CELLCHAT_FORCE_RERUN=true for full CellChat inference."
+    ),
+    file.path(out_log_dir, "CellChat_snRNAseq_4_niches_figure_only_notes.txt")
+  )
+
+  sink(file.path(out_log_dir, "sessionInfo_figure_only.txt"))
+  print(sessionInfo())
+  sink()
+
+  TRUE
+}
+
 
 run_cellchat_for_niche <- function(seu, niche_name, niche_labels) {
   cat("\n============================================================\n")
@@ -815,6 +1021,15 @@ run_cellchat_for_niche <- function(seu, niche_name, niche_labels) {
   )
 }
 
+if (use_existing_cellchat_results && !force_cellchat_rerun) {
+  figure_only_done <- generate_circle_figures_from_existing_tables()
+
+  if (isTRUE(figure_only_done)) {
+    cat("\nDone. CellChat figures regenerated from existing aggregate tables:\n", cellchat_results_root, "\n")
+    quit(save = "no", status = 0)
+  }
+}
+
 cat("Loading annotated snRNA-seq object:\n", annotated_rds, "\n")
 
 stopifnot(file.exists(annotated_rds))
@@ -902,34 +1117,23 @@ write_csv(
 )
 writeLines(
   c(
-    paste("Input annotated snRNA-seq object:", annotated_rds),
-    paste("Output root:", cellchat_results_root),
-    "This script runs CellChat for four biologically defined snRNA-seq niches.",
-    "It starts from the GitHub-generated annotated fetal snRNA-seq object.",
-    "Minimal retained outputs only.",
-    "Final retained figures: one enlarged custom-rendered interaction-strength CellChat circle plot per niche.",
-    "Final retained tables: combined top LR interactions per niche, pathway-level interactions, aggregate group-pair network summary, CellChat niche summary, group-count QC, and the CellChat color map.",
-    "Circle plots are rendered from CellChat aggregate interaction weights using custom igraph plotting for larger nodes, thicker minimum edges, larger arrows, outside labels, shortened degenerating-state labels, and no plot titles. This scaling affects figures only, not exported interaction tables.",
-    "No full per-niche LR tables, per-niche pathway tables, raw count/weight matrices, bubble plots, count-circle plots, signaling heatmaps, or per-niche sessionInfo files are saved.",
+    paste("Input:", annotated_rds),
+    paste("Output:", cellchat_results_root),
     paste("Assay:", assay_use),
     paste("Niches:", paste(names(niche_list), collapse = ", ")),
-    paste("Communication mean type:", communication_mean_type),
-    paste("Communication trim:", communication_trim),
+    paste("Mean method:", communication_mean_type),
+    paste("Trim:", communication_trim),
     paste("Minimum cells per group:", min_cells_per_group),
     paste("Maximum cells per group:", max_cells_per_group),
-    paste("Top interactions retained per niche:", top_n_interactions),
-    paste("Save full CellChat objects:", save_cellchat_objects),
-    paste("Circle plot width:", circle_plot_width),
-    paste("Circle plot height:", circle_plot_height),
-    paste("Circle vertex size max:", circle_vertex_size_max),
-    paste("Circle vertex minimum scaled display weight:", circle_vertex_min_scaled),
-    paste("Circle edge width max:", circle_edge_width_max),
-    paste("Circle edge minimum scaled display weight:", circle_edge_min_scaled),
-    paste("Circle vertex label cex:", circle_vertex_label_cex),
-    paste("Circle label radius:", circle_label_radius),
-    paste("Circle arrow size min:", circle_arrow_size_min),
-    paste("Circle arrow size max:", circle_arrow_size_max),
-    "CellChat circle plots use Xenium-standardized subcluster colors with broad cell-type fallback for missing subcluster-specific colors."
+    paste("Top LR interactions retained per niche:", top_n_interactions),
+    paste("Save CellChat objects:", save_cellchat_objects),
+    paste("Use cached aggregate tables for figure-only regeneration:", use_existing_cellchat_results),
+    paste("Force full rerun:", force_cellchat_rerun),
+    paste("Circle size:", paste(circle_plot_width, circle_plot_height, sep = " x ")),
+    paste("Circle edge alpha range:", paste(circle_edge_alpha_min, circle_edge_alpha_max, sep = "-")),
+    paste("Circle loop center:", paste(circle_loop_center_x, circle_loop_center_y, sep = ",")),
+    "Outputs: circle plots, top LR table, pathway table, aggregate group-pair network, summary table, group-count QC, and color map.",
+    "Circle plots are display-scaled from CellChat aggregate weights; exported tables retain raw CellChat values."
   ),
   file.path(out_log_dir, "CellChat_snRNAseq_4_niches_notes.txt")
 )
