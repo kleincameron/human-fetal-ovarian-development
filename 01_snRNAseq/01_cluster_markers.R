@@ -7,15 +7,51 @@ suppressPackageStartupMessages({
 
 set.seed(42)
 
-project_root <- "/home/liyan/liyan/Final/github_code_for_publication"
-input_root <- "/home/liyan/liyan/Final/github_code_for_publication_results/snRNAseq_initial_processing"
-results_root <- "/home/liyan/liyan/Final/github_code_for_publication_results/snRNAseq_cluster_markers"
-
-canonical_rds <- file.path(
-  input_root,
-  "objects",
-  "fetal_ovary_snRNAseq_canonical.rds"
+project_root <- normalizePath(
+  Sys.getenv("PROJECT_ROOT", unset = getwd()),
+  mustWork = TRUE
 )
+
+if (!file.exists(file.path(project_root, "config", "paths_example.R"))) {
+  stop("PROJECT_ROOT does not point to the repository root. Run from the repo root or set PROJECT_ROOT.")
+}
+
+paths_local <- file.path(project_root, "config", "paths_local.R")
+if (file.exists(paths_local)) {
+  source(paths_local)
+}
+
+results_base <- if (exists("results_root", inherits = FALSE)) {
+  results_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_RESULTS_ROOT",
+    unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
+  )
+}
+results_base <- normalizePath(results_base, mustWork = FALSE)
+
+input_root <- if (exists("snrna_initial_processing_results_root", inherits = FALSE)) {
+  snrna_initial_processing_results_root
+} else {
+  file.path(results_base, "snRNAseq_initial_processing")
+}
+
+results_root <- if (exists("snrna_cluster_markers_results_root", inherits = FALSE)) {
+  snrna_cluster_markers_results_root
+} else {
+  file.path(results_base, "snRNAseq_cluster_markers")
+}
+
+canonical_rds <- if (exists("snrna_canonical_rds", inherits = FALSE)) {
+  snrna_canonical_rds
+} else {
+  file.path(
+    input_root,
+    "objects",
+    "fetal_ovary_snRNAseq_canonical.rds"
+  )
+}
 
 out_table_dir <- file.path(results_root, "tables")
 out_log_dir <- file.path(results_root, "logs")

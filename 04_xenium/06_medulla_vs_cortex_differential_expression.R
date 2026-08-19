@@ -17,8 +17,14 @@ options(bitmapType = "cairo")
 future::plan("sequential")
 options(future.globals.maxSize = 100 * 1024^3)
 
-project_root <- "/home/liyan/liyan/Final/github_code_for_publication"
-results_base <- "/home/liyan/liyan/Final/github_code_for_publication_results"
+project_root <- normalizePath(
+  Sys.getenv("PROJECT_ROOT", unset = getwd()),
+  mustWork = TRUE
+)
+
+if (!file.exists(file.path(project_root, "config", "labels_colors.R"))) {
+  stop("PROJECT_ROOT does not point to the repository root. Run from the repo root or set PROJECT_ROOT.")
+}
 
 source(file.path(project_root, "config", "labels_colors.R"))
 
@@ -27,35 +33,74 @@ if (file.exists(paths_local)) {
   source(paths_local)
 }
 
+data_root <- if (exists("data_root", inherits = FALSE)) {
+  data_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_DATA_ROOT",
+    unset = file.path(dirname(project_root), "github_code_for_publication_controlled_data", "HRA019091")
+  )
+}
+data_root <- normalizePath(data_root, mustWork = FALSE)
+
+results_base <- if (exists("results_root", inherits = FALSE)) {
+  results_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_RESULTS_ROOT",
+    unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
+  )
+}
+results_base <- normalizePath(results_base, mustWork = FALSE)
+
 manifest_file <- if (exists("xenium_manifest", inherits = FALSE)) {
   xenium_manifest
 } else {
-  file.path(project_root, "config", "xenium_samples.csv")
+  Sys.getenv(
+    "XENIUM_SAMPLE_MANIFEST",
+    unset = file.path(project_root, "config", "xenium_samples.csv")
+  )
 }
 
-xenium_rds <- file.path(
-  results_base,
-  "xenium_annotated_object",
-  "objects",
-  "fetal_ovary_xenium_annotated.rds"
-)
+xenium_rds <- if (exists("xenium_annotated_rds", inherits = FALSE)) {
+  xenium_annotated_rds
+} else {
+  file.path(
+    results_base,
+    "xenium_annotated_object",
+    "objects",
+    "fetal_ovary_xenium_annotated.rds"
+  )
+}
 
-snrna_annotation_metadata <- file.path(
-  project_root,
-  "metadata",
-  "snRNAseq_cell_annotations.csv"
-)
+snrna_annotation_metadata <- if (exists("snrna_annotation_metadata", inherits = FALSE)) {
+  snrna_annotation_metadata
+} else {
+  file.path(
+    project_root,
+    "metadata",
+    "snRNAseq_cell_annotations.csv"
+  )
+}
 
-medulla_roi_csv <- file.path(
-  project_root,
-  "metadata",
-  "xenium_medulla_roi_coordinates.csv"
-)
+medulla_roi_csv <- if (exists("xenium_medulla_roi_csv", inherits = FALSE)) {
+  xenium_medulla_roi_csv
+} else {
+  file.path(
+    project_root,
+    "metadata",
+    "xenium_medulla_roi_coordinates.csv"
+  )
+}
 
-results_root <- file.path(
-  results_base,
-  "xenium_medulla_cortex_differential_expression"
-)
+results_root <- if (exists("xenium_medulla_cortex_de_results_root", inherits = FALSE)) {
+  xenium_medulla_cortex_de_results_root
+} else {
+  file.path(
+    results_base,
+    "xenium_medulla_cortex_differential_expression"
+  )
+}
 
 if (dir.exists(results_root)) {
   unlink(results_root, recursive = TRUE, force = TRUE)
@@ -88,6 +133,22 @@ celltype_order <- unique(c(celltype_order, fallback_celltype_order))
 min_cells_per_region <- 100L
 top_genes_per_region <- 50L
 fdr_cutoff <- 0.05
+
+resolve_data_path <- function(path, data_root) {
+  path <- path.expand(as.character(path))
+
+  if (is.na(path) || path == "") {
+    return(path)
+  }
+
+  is_absolute <- grepl("^/", path) || grepl("^[A-Za-z]:[\\/]", path)
+
+  if (is_absolute) {
+    normalizePath(path, mustWork = FALSE)
+  } else {
+    normalizePath(file.path(data_root, path), mustWork = FALSE)
+  }
+}
 
 normalize_include <- function(x) {
   tolower(trimws(as.character(x))) %in% c("true", "t", "1", "yes", "y")
@@ -393,7 +454,15 @@ manifest <- manifest |>
     gestational_week = as.character(gestational_week),
     xenium_dir = as.character(xenium_dir)
   ) |>
-  filter(include)
+  filter(include) |>
+  mutate(
+    xenium_dir = vapply(
+      xenium_dir,
+      resolve_data_path,
+      data_root = data_root,
+      FUN.VALUE = character(1)
+    )
+  )
 
 if (nrow(manifest) != 1) {
   stop("Expected exactly one included Xenium sample; found: ", nrow(manifest))

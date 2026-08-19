@@ -19,8 +19,14 @@ suppressPackageStartupMessages({
 set.seed(42)
 options(bitmapType = "cairo")
 
-project_root <- "/home/liyan/liyan/Final/github_code_for_publication"
-results_base <- "/home/liyan/liyan/Final/github_code_for_publication_results"
+project_root <- normalizePath(
+  Sys.getenv("PROJECT_ROOT", unset = getwd()),
+  mustWork = TRUE
+)
+
+if (!file.exists(file.path(project_root, "config", "plotting.R"))) {
+  stop("PROJECT_ROOT does not point to the repository root. Run from the repo root or set PROJECT_ROOT.")
+}
 
 source(file.path(project_root, "config", "plotting.R"))
 source(file.path(project_root, "config", "labels_colors.R"))
@@ -30,7 +36,22 @@ if (file.exists(paths_local)) {
   source(paths_local)
 }
 
-deg_results_root <- file.path(results_base, "fetal_adult_pseudobulk_edgeR")
+results_base <- if (exists("results_root", inherits = FALSE)) {
+  results_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_RESULTS_ROOT",
+    unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
+  )
+}
+results_base <- normalizePath(results_base, mustWork = FALSE)
+
+deg_results_root <- if (exists("fetal_adult_pseudobulk_results_root", inherits = FALSE)) {
+  fetal_adult_pseudobulk_results_root
+} else {
+  file.path(results_base, "fetal_adult_pseudobulk_edgeR")
+}
+
 deg_table_dir <- file.path(deg_results_root, "tables")
 
 qc_summary_csv <- file.path(
@@ -38,21 +59,23 @@ qc_summary_csv <- file.path(
   "PSEUDOBULK_edgeR_QC_summary.csv"
 )
 
-default_gmt_hallmark <- "/home/liyan/liyan/references/msigdb/h.all.v2023.2.Hs.symbols.gmt"
-default_gmt_reactome <- "/home/liyan/liyan/references/msigdb/c2.cp.reactome.v2023.2.Hs.symbols.gmt"
-
 gmt_hallmark <- if (exists("msigdb_hallmark_gmt", inherits = FALSE)) {
   msigdb_hallmark_gmt
 } else {
-  default_gmt_hallmark
+  Sys.getenv("MSIGDB_HALLMARK_GMT", unset = NA_character_)
 }
 
 gmt_reactome <- if (exists("msigdb_reactome_gmt", inherits = FALSE)) {
   msigdb_reactome_gmt
 } else {
-  default_gmt_reactome
+  Sys.getenv("MSIGDB_REACTOME_GMT", unset = NA_character_)
 }
-results_root <- file.path(results_base, "fetal_adult_fgsea_hallmark_reactome")
+
+results_root <- if (exists("fetal_adult_fgsea_results_root", inherits = FALSE)) {
+  fetal_adult_fgsea_results_root
+} else {
+  file.path(results_base, "fetal_adult_fgsea_hallmark_reactome")
+}
 
 out_table_dir <- file.path(results_root, "tables")
 out_figure_dir <- file.path(results_root, "figures")
@@ -289,10 +312,33 @@ make_hallmark_plot <- function(plot_df, celltype, x_limit) {
     )
 }
 
-stopifnot(dir.exists(deg_table_dir))
-stopifnot(file.exists(qc_summary_csv))
-stopifnot(file.exists(gmt_hallmark))
-stopifnot(file.exists(gmt_reactome))
+if (!dir.exists(deg_table_dir)) {
+  stop(
+    "Pseudobulk DEG table directory not found: ", deg_table_dir, "\n",
+    "Run 02_fetal_adult/01_pseudobulk_edgeR_fetal_vs_adult_by_celltype.R first."
+  )
+}
+
+if (!file.exists(qc_summary_csv)) {
+  stop(
+    "Pseudobulk QC summary not found: ", qc_summary_csv, "\n",
+    "Run 02_fetal_adult/01_pseudobulk_edgeR_fetal_vs_adult_by_celltype.R first."
+  )
+}
+
+if (is.na(gmt_hallmark) || gmt_hallmark == "" || !file.exists(gmt_hallmark)) {
+  stop(
+    "Hallmark GMT file not found. Set MSIGDB_HALLMARK_GMT, or define ",
+    "msigdb_hallmark_gmt in config/paths_local.R."
+  )
+}
+
+if (is.na(gmt_reactome) || gmt_reactome == "" || !file.exists(gmt_reactome)) {
+  stop(
+    "Reactome GMT file not found. Set MSIGDB_REACTOME_GMT, or define ",
+    "msigdb_reactome_gmt in config/paths_local.R."
+  )
+}
 
 message("Loading GMT files.")
 pathways_hallmark <- fgsea::gmtPathways(gmt_hallmark)

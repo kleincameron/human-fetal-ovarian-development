@@ -12,13 +12,65 @@ suppressPackageStartupMessages({
 
 set.seed(42)
 
-project_root <- "/home/liyan/liyan/Final/github_code_for_publication"
-results_root <- "/home/liyan/liyan/Final/github_code_for_publication_results/snRNAseq_initial_processing"
+project_root <- normalizePath(
+  Sys.getenv("PROJECT_ROOT", unset = getwd()),
+  mustWork = TRUE
+)
+
+if (!file.exists(file.path(project_root, "config", "plotting.R"))) {
+  stop("PROJECT_ROOT does not point to the repository root. Run from the repo root or set PROJECT_ROOT.")
+}
 
 source(file.path(project_root, "config", "plotting.R"))
 source(file.path(project_root, "config", "labels_colors.R"))
 
-sample_manifest <- file.path(project_root, "config", "snrna_samples.csv")
+paths_local <- file.path(project_root, "config", "paths_local.R")
+if (file.exists(paths_local)) {
+  source(paths_local)
+}
+
+data_root <- if (exists("data_root", inherits = FALSE)) {
+  data_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_DATA_ROOT",
+    unset = file.path(dirname(project_root), "github_code_for_publication_controlled_data", "HRA019091")
+  )
+}
+data_root <- normalizePath(data_root, mustWork = FALSE)
+
+results_base <- if (exists("results_root", inherits = FALSE)) {
+  results_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_RESULTS_ROOT",
+    unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
+  )
+}
+results_base <- normalizePath(results_base, mustWork = FALSE)
+
+results_root <- if (exists("snrna_initial_processing_results_root", inherits = FALSE)) {
+  snrna_initial_processing_results_root
+} else {
+  file.path(results_base, "snRNAseq_initial_processing")
+}
+
+sample_manifest <- if (exists("snrna_sample_manifest", inherits = FALSE)) {
+  snrna_sample_manifest
+} else {
+  Sys.getenv(
+    "SNRNA_SAMPLE_MANIFEST",
+    unset = file.path(project_root, "config", "snrna_samples.csv")
+  )
+}
+
+if (!file.exists(sample_manifest)) {
+  stop(
+    "snRNA-seq sample manifest not found: ", sample_manifest, "\n",
+    "Copy config/snrna_samples_example.csv to config/snrna_samples.csv, ",
+    "or set SNRNA_SAMPLE_MANIFEST, or define snrna_sample_manifest in config/paths_local.R."
+  )
+}
 
 out_object_dir <- file.path(results_root, "objects")
 out_table_dir <- file.path(results_root, "tables")
@@ -31,6 +83,22 @@ dir.create(out_figure_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(out_log_dir, recursive = TRUE, showWarnings = FALSE)
 
 canonical_rds <- file.path(out_object_dir, "fetal_ovary_snRNAseq_canonical.rds")
+
+resolve_data_path <- function(path, data_root) {
+  path <- path.expand(as.character(path))
+
+  if (is.na(path) || path == "") {
+    return(path)
+  }
+
+  is_absolute <- grepl("^/", path) || grepl("^[A-Za-z]:[\\/]", path)
+
+  if (is_absolute) {
+    normalizePath(path, mustWork = FALSE)
+  } else {
+    normalizePath(file.path(data_root, path), mustWork = FALSE)
+  }
+}
 
 read_sample_manifest <- function(path) {
   stopifnot(file.exists(path))
@@ -50,7 +118,15 @@ read_sample_manifest <- function(path) {
       matrix_dir = as.character(matrix_dir),
       include = as.logical(include)
     ) |>
-    filter(include)
+    filter(include) |>
+    mutate(
+      matrix_dir = vapply(
+        matrix_dir,
+        resolve_data_path,
+        data_root = data_root,
+        FUN.VALUE = character(1)
+      )
+    )
 
   if (nrow(manifest) == 0) {
     stop("No samples marked include=TRUE in sample manifest.")
