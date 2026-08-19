@@ -21,15 +21,33 @@ suppressPackageStartupMessages({
 set.seed(42)
 options(bitmapType = "cairo")
 
-project_root <- "/home/liyan/liyan/Final/github_code_for_publication"
-results_base <- "/home/liyan/liyan/Final/github_code_for_publication_results"
+project_root <- normalizePath(
+  Sys.getenv("PROJECT_ROOT", unset = getwd()),
+  mustWork = TRUE
+)
 
-source(file.path(project_root, "config", "labels_colors.R"))
+if (!file.exists(file.path(project_root, "config", "paths_example.R"))) {
+  stop("PROJECT_ROOT does not point to the repository root. Run from the repo root or set PROJECT_ROOT.")
+}
 
 paths_local <- file.path(project_root, "config", "paths_local.R")
 if (file.exists(paths_local)) {
   source(paths_local)
 }
+
+results_base <- if (exists("results_root", inherits = FALSE)) {
+  results_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_RESULTS_ROOT",
+    unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
+  )
+}
+results_base <- normalizePath(results_base, mustWork = FALSE)
+
+
+source(file.path(project_root, "config", "labels_colors.R"))
+
 
 default_fetal_rds <- file.path(
   results_base,

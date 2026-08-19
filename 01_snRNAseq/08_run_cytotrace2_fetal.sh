@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/liyan/liyan/Final/github_code_for_publication}"
-RESULTS_BASE="${RESULTS_BASE:-/home/liyan/liyan/Final/github_code_for_publication_results}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+RESULTS_BASE="${RESULTS_BASE:-${FETAL_OVARY_RESULTS_ROOT:-$(cd "${PROJECT_ROOT}/.." && pwd)/$(basename "${PROJECT_ROOT}")_results}}"
 
 ANNOTATED_RDS="${ANNOTATED_RDS:-${RESULTS_BASE}/snRNAseq_annotated_object/objects/fetal_ovary_snRNAseq_canonical_annotated.rds}"
 
