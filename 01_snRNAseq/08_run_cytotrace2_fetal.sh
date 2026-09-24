@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-RESULTS_BASE="${RESULTS_BASE:-${FETAL_OVARY_RESULTS_ROOT:-$(cd "${PROJECT_ROOT}/.." && pwd)/$(basename "${PROJECT_ROOT}")_results}}"
+RESULTS_BASE="${FETAL_OVARY_RESULTS_ROOT:-$(cd "${PROJECT_ROOT}/.." && pwd)/$(basename "${PROJECT_ROOT}")_results}"
 
 ANNOTATED_RDS="${ANNOTATED_RDS:-${RESULTS_BASE}/snRNAseq_annotated_object/objects/fetal_ovary_snRNAseq_canonical_annotated.rds}"
 

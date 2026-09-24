@@ -12,26 +12,37 @@ suppressPackageStartupMessages({
 options(bitmapType = "cairo")
 
 project_root <- normalizePath(
-  Sys.getenv("FETAL_OVARY_PROJECT_ROOT", unset = getwd()),
+  Sys.getenv("PROJECT_ROOT", unset = getwd()),
   mustWork = TRUE
 )
 
-results_root <- normalizePath(
+if (!file.exists(file.path(project_root, "config", "paths_example.R"))) {
+  stop("PROJECT_ROOT does not point to the repository root. Run from the repo root or set PROJECT_ROOT.")
+}
+
+paths_local <- file.path(project_root, "config", "paths_local.R")
+if (file.exists(paths_local)) {
+  source(paths_local)
+}
+
+results_base <- if (exists("results_root", inherits = FALSE)) {
+  results_root
+} else {
   Sys.getenv(
     "FETAL_OVARY_RESULTS_ROOT",
-    unset = file.path(dirname(project_root), "github_code_for_publication_results")
-  ),
-  mustWork = FALSE
-)
+    unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
+  )
+}
+results_base <- normalizePath(results_base, mustWork = FALSE)
 
 input_rds <- file.path(
-  results_root,
+  results_base,
   "snRNAseq_annotated_object",
   "objects",
   "fetal_ovary_snRNAseq_canonical_annotated.rds"
 )
 
-out_root <- file.path(results_root, "cell2location_reference")
+out_root <- file.path(results_base, "cell2location_reference")
 out_table_dir <- file.path(out_root, "tables")
 out_log_dir <- file.path(out_root, "logs")
 

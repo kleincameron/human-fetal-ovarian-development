@@ -42,7 +42,7 @@ default_results_base <- file.path(
 )
 
 results_base <- normalizePath(
-  Sys.getenv("FETAL_OVARY_RESULTS_DIR", unset = default_results_base),
+  Sys.getenv("FETAL_OVARY_RESULTS_ROOT", unset = default_results_base),
   winslash = "/",
   mustWork = FALSE
 )
