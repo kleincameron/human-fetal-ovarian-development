@@ -17,16 +17,20 @@ from scipy import sparse
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    configured_root = os.environ.get("PROJECT_ROOT")
+    if configured_root:
+        return Path(configured_root).expanduser().resolve()
+
+    return Path(__file__).resolve().parents[1]
 
 
 def default_results_root(project_root: Path) -> Path:
     return Path(
         os.environ.get(
             "FETAL_OVARY_RESULTS_ROOT",
-            str(project_root.parent / "github_code_for_publication_results"),
+            str(project_root.parent / f"{project_root.name}_results"),
         )
-    ).resolve()
+    ).expanduser().resolve()
 
 
 def default_spatial_data_root(project_root: Path) -> Path:
@@ -295,7 +299,7 @@ def main() -> None:
     parser.add_argument(
         "--results-root",
         default=None,
-        help="Output root. Defaults to FETAL_OVARY_RESULTS_ROOT or ../github_code_for_publication_results.",
+        help="Output root. Defaults to FETAL_OVARY_RESULTS_ROOT or a sibling <repository>_results directory.",
     )
     parser.add_argument(
         "--spatial-data-root",

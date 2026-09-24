@@ -1,12 +1,28 @@
-project_root <- normalizePath(getwd(), mustWork = TRUE)
+project_root <- normalizePath(
+  Sys.getenv("PROJECT_ROOT", unset = getwd()),
+  mustWork = TRUE
+)
 
 data_root <- normalizePath(
-  Sys.getenv("FETAL_OVARY_DATA_ROOT", unset = "../github_code_for_publication_controlled_data/HRA019091"),
+  Sys.getenv(
+    "FETAL_OVARY_DATA_ROOT",
+    unset = file.path(
+      dirname(project_root),
+      paste0(basename(project_root), "_controlled_data"),
+      "HRA019091"
+    )
+  ),
   mustWork = FALSE
 )
 
 results_root <- normalizePath(
-  Sys.getenv("FETAL_OVARY_RESULTS_ROOT", unset = "../github_code_for_publication_results"),
+  Sys.getenv(
+    "FETAL_OVARY_RESULTS_ROOT",
+    unset = file.path(
+      dirname(project_root),
+      paste0(basename(project_root), "_results")
+    )
+  ),
   mustWork = FALSE
 )
 

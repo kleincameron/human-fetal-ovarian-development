@@ -48,18 +48,23 @@ if (!file.exists(file.path(project_root, "config", "plotting.R"))) {
   stop("PROJECT_ROOT does not point to the repository root. Run from the repo root or set PROJECT_ROOT.")
 }
 
-results_base <- Sys.getenv(
-  "RESULTS_BASE",
-  unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
-)
-
-source(file.path(project_root, "config", "plotting.R"))
-source(file.path(project_root, "config", "labels_colors.R"))
-
 paths_local <- file.path(project_root, "config", "paths_local.R")
 if (file.exists(paths_local)) {
   source(paths_local)
 }
+
+results_base <- if (exists("results_root", inherits = FALSE)) {
+  results_root
+} else {
+  Sys.getenv(
+    "FETAL_OVARY_RESULTS_ROOT",
+    unset = file.path(dirname(project_root), paste0(basename(project_root), "_results"))
+  )
+}
+results_base <- normalizePath(results_base, mustWork = FALSE)
+
+source(file.path(project_root, "config", "plotting.R"))
+source(file.path(project_root, "config", "labels_colors.R"))
 
 if (!exists("publication_font_family", inherits = TRUE)) {
   publication_font_family <- "Helvetica"

@@ -34,7 +34,11 @@ data_root <- if (exists("data_root", inherits = FALSE)) {
 } else {
   Sys.getenv(
     "FETAL_OVARY_DATA_ROOT",
-    unset = file.path(dirname(project_root), "github_code_for_publication_controlled_data", "HRA019091")
+    unset = file.path(
+      dirname(project_root),
+      paste0(basename(project_root), "_controlled_data"),
+      "HRA019091"
+    )
   )
 }
 data_root <- normalizePath(data_root, mustWork = FALSE)

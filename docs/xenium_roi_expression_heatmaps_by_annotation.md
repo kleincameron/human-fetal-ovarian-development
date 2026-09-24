@@ -8,7 +8,7 @@ Inputs are generated or tracked within the public GitHub workflow structure:
 - `metadata/xenium_medulla_roi_coordinates.csv`
 - `metadata/xenium_primordial_follicle_roi_coordinates.csv`
 - `metadata/xenium_degenerating_follicle_rois/degen*_coordinates.csv`
-- `github_code_for_publication_results/xenium_annotated_object/objects/fetal_ovary_xenium_annotated.rds`
+- `<FETAL_OVARY_RESULTS_ROOT>/xenium_annotated_object/objects/fetal_ovary_xenium_annotated.rds`
 
 Regions used for heatmaps:
 
